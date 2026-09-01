@@ -27,8 +27,9 @@ repositories:
     version: 1.1.0
   core/autoware_core:
     type: git
-    url: https://github.com/autowarefoundation/autoware_core.git
-    version: 1.8.0
+    url: https://github.com/jacoblambert/autoware_core.git
+    # 1.8.0 + PointXYZIRCT point type (feat/point-xyzirct-1.8.0)
+    version: 77abfc03d00471034e3959e06e53a9e004bf7ec6
   core/autoware_system_designer:
     type: git
     url: https://github.com/autowarefoundation/autoware_system_designer.git

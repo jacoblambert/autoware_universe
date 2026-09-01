@@ -26,14 +26,25 @@ from sensor_msgs.msg import PointField
 _INPUT_TOPICS = ["lidar_top", "lidar_left", "lidar_right"]
 _OUTPUT_FRAME = "base_link"
 
-# Minimal x/y/z FLOAT32 input layout (point_step = 12). convert_to_xyzirc_cloud upgrades it to the
-# 16-byte PointXYZIRC layout internally, so the concatenated output has point_step 16.
+# Minimal x/y/z FLOAT32 input layout (point_step = 12). convert_to_xyzirct_cloud upgrades it to the
+# 20-byte PointXYZIRCT layout internally, so the concatenated output has point_step 20.
 _INPUT_POINT_STEP = 12
-_XYZIRC_POINT_STEP = 16
+_XYZIRCT_POINT_STEP = 20
 _FIELDS = [
     PointField(name="x", offset=0, datatype=PointField.FLOAT32, count=1),
     PointField(name="y", offset=4, datatype=PointField.FLOAT32, count=1),
     PointField(name="z", offset=8, datatype=PointField.FLOAT32, count=1),
+]
+
+# Full PointXYZIRCT input layout, for the per-point time_stamp propagation tests.
+_XYZIRCT_FIELDS = [
+    PointField(name="x", offset=0, datatype=PointField.FLOAT32, count=1),
+    PointField(name="y", offset=4, datatype=PointField.FLOAT32, count=1),
+    PointField(name="z", offset=8, datatype=PointField.FLOAT32, count=1),
+    PointField(name="intensity", offset=12, datatype=PointField.UINT8, count=1),
+    PointField(name="return_type", offset=13, datatype=PointField.UINT8, count=1),
+    PointField(name="channel", offset=14, datatype=PointField.UINT16, count=1),
+    PointField(name="time_stamp", offset=16, datatype=PointField.UINT32, count=1),
 ]
 
 _POINTS = [(10.0, 0.0, 1.0), (0.0, 10.0, 2.0), (0.0, 0.0, 10.0)]
@@ -62,8 +73,34 @@ def _make_cloud(sec, nanosec, points=_POINTS, frame_id=_OUTPUT_FRAME):
     return msg
 
 
+def _make_xyzirct_cloud(sec, nanosec, points, frame_id=_OUTPUT_FRAME):
+    """points: iterable of (x, y, z, intensity, return_type, channel, time_stamp)."""
+    msg = PointCloud2()
+    msg.header.stamp.sec = sec
+    msg.header.stamp.nanosec = nanosec
+    msg.header.frame_id = frame_id
+    msg.height = 1
+    msg.width = len(points)
+    msg.fields = _XYZIRCT_FIELDS
+    msg.is_bigendian = False
+    msg.point_step = _XYZIRCT_POINT_STEP
+    msg.row_step = _XYZIRCT_POINT_STEP * len(points)
+    msg.is_dense = True
+    data = bytearray()
+    for x, y, z, intensity, return_type, channel, time_stamp in points:
+        data += struct.pack("<fffBBHI", x, y, z, intensity, return_type, channel, time_stamp)
+    msg.data = bytes(data)
+    return msg
+
+
 def _read_xyz(msg):
     return [struct.unpack_from("<fff", msg.data, i * msg.point_step) for i in range(msg.width)]
+
+
+def _read_xyzirct(msg):
+    return [
+        struct.unpack_from("<fffBBHI", msg.data, i * msg.point_step) for i in range(msg.width)
+    ]
 
 
 def _quat_z(angle_rad):
@@ -113,9 +150,34 @@ def test_combine_three_clouds_in_output_frame():
 
     assert result.concatenated_cloud is not None
     assert result.concatenated_cloud.width == len(_INPUT_TOPICS) * len(_POINTS)
-    assert result.concatenated_cloud.point_step == _XYZIRC_POINT_STEP
+    assert result.concatenated_cloud.point_step == _XYZIRCT_POINT_STEP
     assert result.concatenated_cloud.header.frame_id == _OUTPUT_FRAME
     assert _read_xyz(result.concatenated_cloud) == _POINTS * len(_INPUT_TOPICS)
+
+
+def test_combine_preserves_per_point_time_stamps_verbatim():
+    # Per-point time_stamps must survive concatenation unchanged: each stays relative to its OWN
+    # source cloud's header stamp (they are not re-referenced to the concatenated cloud's stamp).
+    handler = CombineCloudHandler(_INPUT_TOPICS, _OUTPUT_FRAME, is_motion_compensated=False)
+    clouds = {}
+    expected = {}
+    for index, topic in enumerate(_INPUT_TOPICS):
+        points = [
+            (1.0 * index, 2.0, 3.0, 100 + index, 1, 7 + index, 10_000_000 * index + point_index)
+            for point_index in range(len(_POINTS))
+        ]
+        clouds[topic] = _make_xyzirct_cloud(10, 40_000_000 * index, points)
+        expected[topic] = points
+
+    result = handler.combine_pointclouds(clouds)
+
+    assert result.concatenated_cloud is not None
+    assert result.concatenated_cloud.point_step == _XYZIRCT_POINT_STEP
+    output_points = _read_xyzirct(result.concatenated_cloud)
+    assert len(output_points) == len(_INPUT_TOPICS) * len(_POINTS)
+    for points in expected.values():
+        for point in points:
+            assert _contains_point(output_points, point, tol=1e-6)
 
 
 def test_combine_reports_original_stamps():

@@ -30,7 +30,7 @@
 
 namespace autoware::pointcloud_preprocessor
 {
-using autoware::point_types::PointXYZIRC;
+using autoware::point_types::PointXYZIRCT;
 using point_cloud_msg_wrapper::PointCloud2Modifier;
 
 template <typename PointCloudMsgT>
@@ -60,16 +60,16 @@ public:
   void allocate_pointclouds() override {};
 
 protected:
-  static void convert_to_xyzirc_cloud(
+  static void convert_to_xyzirct_cloud(
     const sensor_msgs::msg::PointCloud2::ConstSharedPtr & input_cloud,
-    sensor_msgs::msg::PointCloud2::UniquePtr & xyzirc_cloud);
+    sensor_msgs::msg::PointCloud2::UniquePtr & xyzirct_cloud);
 
   // ROS-runtime-free replacement for pcl_ros::transformPointCloud(Eigen::Matrix4f, in, out):
   static void transform_pointcloud(
     const Eigen::Matrix4f & transform, const sensor_msgs::msg::PointCloud2 & in,
     sensor_msgs::msg::PointCloud2 & out);
 
-  // Appends src's point data onto dst in place (both must share the PointXYZIRC layout). Replaces
+  // Appends src's point data onto dst in place (both must share the PointXYZIRCT layout). Replaces
   // pcl::concatenatePointCloud, whose sensor_msgs overload lives in rclcpp-pulling pcl_conversions.
   static void append_pointcloud(
     const sensor_msgs::msg::PointCloud2 & src, sensor_msgs::msg::PointCloud2 & dst);
@@ -90,8 +90,8 @@ private:
       topic_to_cloud_map,
     ConcatenatedCloudResult<sensor_msgs::msg::PointCloud2> & result);
 
-  // Allocates the output cloud and its concatenation info, forces the XYZIRC field layout (so the
-  // output stays XYZIRC even when every input is empty), and reserves space for all input data.
+  // Allocates the output cloud and its concatenation info, forces the XYZIRCT field layout (so the
+  // output stays XYZIRCT even when every input is empty), and reserves space for all input data.
   void initialize_concatenated_cloud(
     const std::unordered_map<std::string, sensor_msgs::msg::PointCloud2::ConstSharedPtr> &
       topic_to_cloud_map,
